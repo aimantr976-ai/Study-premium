@@ -130,7 +130,7 @@ async function doAction(action, body, event) {
     if (!site) throw new ApiError(404, 'This site is not available.');
     if (!site.destinationUrl || !validHttpUrl(site.destinationUrl)) throw new ApiError(409, 'This site link has not been configured by the administrator yet.');
     if (site.requiresSubscription !== false) {
-      const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, siteIds: String(site._id) });
+      const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, siteIds: { $in: [String(site._id)] } });
       const allowed = !!sub;
       if (!allowed) throw new ApiError(402, 'An approved active plan that includes this site is required.', 'PLAN_REQUIRED');
     }
@@ -143,7 +143,7 @@ async function doAction(action, body, event) {
     const batch = await db.collection('batches').findOne({ _id: asId(body.batchId), published: true });
     if (!batch) throw new ApiError(404, 'This batch is not available.');
     if (!batch.destinationUrl || !validHttpUrl(batch.destinationUrl)) throw new ApiError(409, 'This batch link has not been configured yet.');
-    const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, batchIds: String(batch._id) });
+    const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, batchIds: { $in: [String(batch._id)] } });
     if (!sub) throw new ApiError(402, 'An approved active plan that includes this batch is required.', 'PLAN_REQUIRED');
     return ok({ destinationUrl: batch.destinationUrl });
   }
