@@ -1,0 +1,24 @@
+{
+  "name": "study-premium-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Study Premium static frontend with Netlify Functions, MongoDB Atlas, Cloudinary, admin and manual QR payment approval.",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "node scripts/check-build.mjs",
+    "create-admin": "node scripts/create-admin.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.5.1",
+    "dotenv": "^16.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.12.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.38.1"
+  }
+}
