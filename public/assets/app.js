@@ -89,8 +89,17 @@
       const status = document.createElement('span'); status.className = 'platform-status live'; status.innerHTML = '<span class="dot"></span>Batch'; row.append(name, status);
       const category = document.createElement('span'); category.className = 'card-tags'; if (batch.category) { const tag = document.createElement('span'); tag.className = 'tag official'; tag.textContent = batch.category; category.appendChild(tag); }
       const desc = document.createElement('span'); desc.className = 'sp-muted'; desc.textContent = batch.description || 'Protected Study Premium learning resource.';
+      // Display batch price
+      const priceEl = document.createElement('span');
+      priceEl.className = 'sp-price';
+      if (batch.pricePaise === 0) {
+        priceEl.textContent = 'FREE';
+      } else {
+        priceEl.textContent = `₹${(batch.pricePaise / 100).toFixed(0)}`;
+      }
+      info.append(priceEl);
       const cta = document.createElement('span'); cta.className = 'platform-cta'; cta.textContent = 'Access batch →';
-      info.append(row, category, desc, cta); inner.append(logo, info); a.append(inner); grid.appendChild(a);
+      info.append(row, category, desc, priceEl, cta); inner.append(logo, info); a.append(inner); grid.appendChild(a);
     });
     section.style.display = ''; section.classList.add('visible');
   }

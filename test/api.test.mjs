@@ -17,7 +17,7 @@ jest.mock('../netlify/functions/lib/security.mjs', () => ({
 const { getDb } = require('../netlify/functions/lib/db.mjs');
 const { requireUser, asId, now } = require('../netlify/functions/lib/security.mjs');
 
-test('batch/open: approved student can open exact purchased batch', async () => {
+test('batch/open: free batch accessible without subscription', async () => {
   // Arrange
   const userId = 'user123';
   const batchId = 'batch456';
@@ -26,7 +26,57 @@ test('batch/open: approved student can open exact purchased batch', async () => 
 
   requireUser.mockResolvedValue({ _id: userId });
 
-  const mockBatch = { _id: batchId, title: 'Test Batch', destinationUrl: 'https://example.com/batch', published: true };
+  const mockBatch = {
+    _id: batchId,
+    title: 'Free Batch',
+    destinationUrl: 'https://example.com/free-batch',
+    published: true,
+    accessType: 'free'
+  };
+
+  const mockDb = {
+    collection: (name) => {
+      if (name === 'batches') {
+        return { findOne: jest.fn().mockResolvedValue(mockBatch) };
+      }
+      if (name === 'siteSettings') {
+        return { findOne: jest.fn().mockResolvedValue({ maintenance: false }) };
+      }
+      return null;
+    }
+  };
+  getDb.mockResolvedValue(mockDb);
+
+  // Act
+  const event = {
+    httpMethod: 'POST',
+    body: JSON.stringify({ action: 'batch/open', batchId })
+  };
+  const response = await handler(event);
+
+  // Assert
+  assert.strictEqual(response.statusCode, 200);
+  const body = JSON.parse(response.body);
+  assert.strictEqual(body.ok, true);
+  assert.strictEqual(body.destinationUrl, 'https://example.com/free-batch');
+});
+
+test('batch/open: paid batch requires subscription', async () => {
+  // Arrange
+  const userId = 'user123';
+  const batchId = 'batch456';
+  const fixedDate = new Date('2026-01-01');
+  now.mockReturnValue(fixedDate);
+
+  requireUser.mockResolvedValue({ _id: userId });
+
+  const mockBatch = {
+    _id: batchId,
+    title: 'Paid Batch',
+    destinationUrl: 'https://example.com/paid-batch',
+    published: true,
+    accessType: 'paid'
+  };
   const mockSubscription = {
     _id: 'sub123',
     userId,
@@ -63,10 +113,10 @@ test('batch/open: approved student can open exact purchased batch', async () => 
   assert.strictEqual(response.statusCode, 200);
   const body = JSON.parse(response.body);
   assert.strictEqual(body.ok, true);
-  assert.strictEqual(body.destinationUrl, 'https://example.com/batch');
+  assert.strictEqual(body.destinationUrl, 'https://example.com/paid-batch');
 });
 
-test('batch/open: unpurchased different batch remains blocked', async () => {
+test('batch/open: another paid batch blocked without subscription', async () => {
   // Arrange
   const userId = 'user123';
   const batchId = 'batch456';
@@ -76,8 +126,21 @@ test('batch/open: unpurchased different batch remains blocked', async () => {
 
   requireUser.mockResolvedValue({ _id: userId });
 
-  const mockBatch = { _id: differentBatchId, title: 'Different Batch', destinationUrl: 'https://example.com/diff', published: true };
-  const mockSubscription = null; // No subscription for this batch
+  const mockBatch = {
+    _id: differentBatchId,
+    title: 'Different Paid Batch',
+    destinationUrl: 'https://example.com/different-batch',
+    published: true,
+    accessType: 'paid'
+  };
+  const mockSubscription = {
+    _id: 'sub123',
+    userId,
+    batchIds: [batchId], // Only has subscription for batch456, not batch789
+    status: 'active',
+    startsAt: new Date('2025-01-01'),
+    expiresAt: new Date('2026-12-31')
+  };
 
   const mockDb = {
     collection: (name) => {
@@ -109,7 +172,7 @@ test('batch/open: unpurchased different batch remains blocked', async () => {
   assert.strictEqual(body.code, 'PLAN_REQUIRED');
 });
 
-test('batch/open: pending/unapproved payment remains blocked', async () => {
+test('batch/open: paid batch blocked with pending payment', async () => {
   // Arrange
   const userId = 'user123';
   const batchId = 'batch456';
@@ -118,7 +181,13 @@ test('batch/open: pending/unapproved payment remains blocked', async () => {
 
   requireUser.mockResolvedValue({ _id: userId });
 
-  const mockBatch = { _id: batchId, title: 'Test Batch', destinationUrl: 'https://example.com/batch', published: true };
+  const mockBatch = {
+    _id: batchId,
+    title: 'Paid Batch',
+    destinationUrl: 'https://example.com/paid-batch',
+    published: true,
+    accessType: 'paid'
+  };
   const mockSubscription = null; // No active subscription (payment pending)
 
   const mockDb = {
@@ -151,7 +220,7 @@ test('batch/open: pending/unapproved payment remains blocked', async () => {
   assert.strictEqual(body.code, 'PLAN_REQUIRED');
 });
 
-test('batch/open: expired subscription remains blocked', async () => {
+test('batch/open: paid batch blocked with expired subscription', async () => {
   // Arrange
   const userId = 'user123';
   const batchId = 'batch456';
@@ -160,7 +229,13 @@ test('batch/open: expired subscription remains blocked', async () => {
 
   requireUser.mockResolvedValue({ _id: userId });
 
-  const mockBatch = { _id: batchId, title: 'Test Batch', destinationUrl: 'https://example.com/batch', published: true };
+  const mockBatch = {
+    _id: batchId,
+    title: 'Paid Batch',
+    destinationUrl: 'https://example.com/paid-batch',
+    published: true,
+    accessType: 'paid'
+  };
   // Subscription exists but expired (expiresAt is in the past)
   const mockSubscription = null; // Because query requires expiresAt > now, and if expired, findOne returns null
 
@@ -193,5 +268,3 @@ test('batch/open: expired subscription remains blocked', async () => {
   assert.strictEqual(body.ok, false);
   assert.strictEqual(body.code, 'PLAN_REQUIRED');
 });
-
-// Similar tests for site/open can be added if needed, but the logic is analogous.

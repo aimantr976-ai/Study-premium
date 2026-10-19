@@ -81,8 +81,8 @@
       ['title','Title','text',true], ['description','Description','textarea'], ['category','Category/tag','text'], ['section','Homepage section','select',true,['primary','official','mirror']], ['icon','Emoji/icon','text'], ['badge','Badge label','text'], ['accent','Primary card accent','select',false,['blue','cyan','pink']], ['theme','Official/mirror icon theme','select',false,['t2','t3','t4','t5','t6','t7','t8','t9']], ['destinationUrl','Destination URL','url'], ['imageUrl','Image URL (Cloudinary)','url'], ['imageFile','Upload image','file'], ['requiresSubscription','Requires approved plan','checkbox'], ['published','Published','checkbox'], ['sortOrder','Display order','number']
     ], columns: ['title','id','section','category','destinationUrl','published'] },
     batches: { action: 'admin/batches', label: 'batch', fields: [
-      ['title','Batch title','text',true], ['description','Description','textarea'], ['category','Category','text'], ['destinationUrl','Protected destination URL','url'], ['imageUrl','Thumbnail URL (Cloudinary)','url'], ['imageFile','Upload thumbnail','file'], ['published','Published','checkbox'], ['sortOrder','Display order','number']
-    ], columns: ['title','id','category','destinationUrl','published'] },
+      ['title','Batch title','text',true], ['description','Description','textarea'], ['category','Category','text'], ['destinationUrl','Protected destination URL','url'], ['imageUrl','Thumbnail URL (Cloudinary)','url'], ['imageFile','Upload thumbnail','file'], ['accessType','Access Type','select',true,['free','paid']], ['priceInr','Price in ₹','number',false], ['durationDays','Duration (days)','number',true], ['published','Published','checkbox'], ['sortOrder','Display order','number']
+    ], columns: ['title','id','category','destinationUrl','accessType','published'] },
     plans: { action: 'admin/plans', label: 'plan', fields: [
       ['name','Plan name','text',true], ['description','Plan description','textarea'], ['priceInr','Price in INR','number',true], ['durationDays','Duration (days)','number',true], ['includedSiteIds','Included site IDs (comma-separated)','textarea'], ['includedBatchIds','Included batch IDs (comma-separated)','textarea'], ['published','Published for users','checkbox'], ['sortOrder','Display order','number']
     ], columns: ['name','pricePaise','durationDays','published'] }
@@ -91,6 +91,7 @@
     const out = { ...item };
     if (type === 'plans') { out.priceInr = (Number(item.pricePaise || 0) / 100).toFixed(2); out.includedSiteIds = (item.includedSiteIds || []).join(', '); out.includedBatchIds = (item.includedBatchIds || []).join(', '); }
     if (type === 'sites') out.includedSiteIds = (item.includedSiteIds || []).join(', ');
+    if (type === 'batches') out.priceInr = (Number(item.pricePaise || 0) / 100).toFixed(2);
     return out;
   }
   async function renderCrud(type) {

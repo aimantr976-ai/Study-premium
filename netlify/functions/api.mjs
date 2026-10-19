@@ -23,7 +23,7 @@ const strip = (doc, fields = []) => {
 };
 const publicPlan = p => ({ id: String(p._id), name: p.name, description: p.description, pricePaise: p.pricePaise, durationDays: p.durationDays, includedSiteIds: p.includedSiteIds || [], includedBatchIds: p.includedBatchIds || [], published: p.published, sortOrder: p.sortOrder });
 const publicSite = s => ({ id: String(s._id), title: s.title, description: s.description, category: s.category, section: s.section, icon: s.icon || '🌐', badge: s.badge || '', accent: ['pink','cyan','blue'].includes(s.accent) ? s.accent : 'blue', theme: /^t[2-9]$/.test(s.theme || '') ? s.theme : 't8', hasDestinationUrl: !!s.destinationUrl, destinationUrl: s.requiresSubscription === false ? (s.destinationUrl || '') : '', requiresSubscription: s.requiresSubscription !== false, published: s.published !== false, sortOrder: s.sortOrder || 0, imageUrl: s.imageUrl || '' });
-const publicBatch = b => ({ id: String(b._id), title: b.title, description: b.description, category: b.category, imageUrl: b.imageUrl || '', published: b.published !== false, sortOrder: b.sortOrder || 0 });
+const publicBatch = b => ({ id: String(b._id), title: b.title, description: b.description, category: b.category, imageUrl: b.imageUrl || '', published: b.published !== false, sortOrder: b.sortOrder || 0, accessType: b.accessType || 'paid', pricePaise: b.pricePaise || 0, durationDays: b.durationDays || 0 });
 const getSettings = async (db) => await db.collection('siteSettings').findOne({ _id: 'main' }) || { _id: 'main', siteTitle: 'Study Premium', paymentQrUrl: '', paymentRecipient: '', paymentInstructions: 'Pay the exact amount shown. Submit your UTR only after completing the payment.', announcement: '', maintenance: false };
 const ensureAdmin = async (event) => await requireUser(event, true);
 const idList = (value) => Array.isArray(value) ? value.map(x => cleanText(x, 64)).filter(x => ObjectId.isValid(x)).slice(0, 200) : String(value || '').split(',').map(x => cleanText(x, 64)).filter(x => ObjectId.isValid(x)).slice(0, 200);
@@ -78,7 +78,9 @@ async function authLogin(body, event) {
 
 async function listPaymentsForUser(db, userId) {
   return (await db.collection('payments').find({ userId }).sort({ createdAt: -1 }).limit(50).toArray()).map(p => ({
-    id: String(p._id), orderId: p.orderId, planName: p.planSnapshot?.name || 'Plan', amountPaise: p.amountPaise,
+    id: String(p._id), orderId: p.orderId,
+    itemName: p.planSnapshot?.name || p.batchSnapshot?.title || 'Item',
+    amountPaise: p.amountPaise,
     status: p.status, utr: p.utr || '', rejectionReason: p.rejectionReason || '', createdAt: p.createdAt,
     reviewedAt: p.reviewedAt || null, hasScreenshot: !!p.screenshotPublicId
   }));
@@ -130,7 +132,7 @@ async function doAction(action, body, event) {
     if (!site) throw new ApiError(404, 'This site is not available.');
     if (!site.destinationUrl || !validHttpUrl(site.destinationUrl)) throw new ApiError(409, 'This site link has not been configured by the administrator yet.');
     if (site.requiresSubscription !== false) {
-      const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, siteIds: { $in: [String(site._id)] } });
+      const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, siteIds: { $in: [body.siteId] } });
       const allowed = !!sub;
       if (!allowed) throw new ApiError(402, 'An approved active plan that includes this site is required.', 'PLAN_REQUIRED');
     }
@@ -143,7 +145,12 @@ async function doAction(action, body, event) {
     const batch = await db.collection('batches').findOne({ _id: asId(body.batchId), published: true });
     if (!batch) throw new ApiError(404, 'This batch is not available.');
     if (!batch.destinationUrl || !validHttpUrl(batch.destinationUrl)) throw new ApiError(409, 'This batch link has not been configured yet.');
-    const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, batchIds: { $in: [String(batch._id)] } });
+    // Free batches: open without subscription check
+    if (batch.accessType === 'free') {
+      return ok({ destinationUrl: batch.destinationUrl });
+    }
+    // Paid batches: require active subscription that includes this batch
+    const sub = await db.collection('subscriptions').findOne({ userId: user._id, status: 'active', startsAt: { $lte: now() }, expiresAt: { $gt: now() }, batchIds: { $in: [body.batchId] } });
     if (!sub) throw new ApiError(402, 'An approved active plan that includes this batch is required.', 'PLAN_REQUIRED');
     return ok({ destinationUrl: batch.destinationUrl });
   }
@@ -162,6 +169,26 @@ async function doAction(action, body, event) {
     if (openOrder) return ok({ order: { id: String(openOrder._id), orderId: openOrder.orderId, amountPaise: openOrder.amountPaise, status: openOrder.status, createdAt: openOrder.createdAt }, qrUrl: settings.paymentQrUrl, recipient: settings.paymentRecipient || '', instructions: settings.paymentInstructions || '' });
     const orderId = `SP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
     const pay = { orderId, userId: user._id, planId, planSnapshot: { name: plan.name, durationDays: plan.durationDays, includedSiteIds: plan.includedSiteIds || [], includedBatchIds: plan.includedBatchIds || [] }, amountPaise: plan.pricePaise, status: 'awaiting_payment', createdAt: now(), updatedAt: now() };
+    const ins = await db.collection('payments').insertOne(pay); pay._id = ins.insertedId;
+    await audit(db, user, 'payment.order_created', 'payment', pay._id, { orderId, amountPaise: pay.amountPaise });
+    return created({ order: { id: String(pay._id), orderId, amountPaise: pay.amountPaise, status: pay.status, createdAt: pay.createdAt }, qrUrl: settings.paymentQrUrl, recipient: settings.paymentRecipient || '', instructions: settings.paymentInstructions || '' });
+  }
+  if (action === 'payment/createBatch') {
+    await rateLimit(event, 'payment-create', 10, 10 * 60 * 1000);
+    const user = await requireUser(event);
+    const db = await getDb();
+    const batchId = asId(body.batchId);
+    const batch = await db.collection('batches').findOne({ _id: batchId, published: true });
+    if (!batch) throw new ApiError(404, 'The selected batch is not available.');
+    if (batch.accessType !== 'paid') throw new ApiError(400, 'This batch is not available for purchase.');
+    if (!Number.isInteger(batch.pricePaise) || batch.pricePaise < 1) throw new ApiError(400, 'This batch has not been configured with a valid positive price.');
+    const settings = await getSettings(db);
+    if (settings.maintenance) throw new ApiError(503, 'Checkout is paused while Study Premium is under maintenance.');
+    if (!settings.paymentQrUrl) throw new ApiError(503, 'The administrator has not configured the payment QR yet. Please try again later.');
+    const openOrder = await db.collection('payments').findOne({ userId: user._id, batchId, status: 'awaiting_payment', createdAt: { $gt: new Date(Date.now() - 24 * 3600 * 1000) } });
+    if (openOrder) return ok({ order: { id: String(openOrder._id), orderId: openOrder.orderId, amountPaise: openOrder.amountPaise, status: openOrder.status, createdAt: openOrder.createdAt }, qrUrl: settings.paymentQrUrl, recipient: settings.paymentRecipient || '', instructions: settings.paymentInstructions || '' });
+    const orderId = `SP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const pay = { orderId, userId: user._id, batchId, batchSnapshot: { title: batch.title, durationDays: batch.durationDays, pricePaise: batch.pricePaise }, amountPaise: batch.pricePaise, status: 'awaiting_payment', createdAt: now(), updatedAt: now() };
     const ins = await db.collection('payments').insertOne(pay); pay._id = ins.insertedId;
     await audit(db, user, 'payment.order_created', 'payment', pay._id, { orderId, amountPaise: pay.amountPaise });
     return created({ order: { id: String(pay._id), orderId, amountPaise: pay.amountPaise, status: pay.status, createdAt: pay.createdAt }, qrUrl: settings.paymentQrUrl, recipient: settings.paymentRecipient || '', instructions: settings.paymentInstructions || '' });
@@ -275,11 +302,72 @@ async function doAction(action, body, event) {
   }
   if (action === 'admin/batches/save') {
     const id = cleanText(body.id, 64); const title = cleanText(body.title, 120); if (title.length < 2) throw new ApiError(400, 'Batch title is required.');
-    const doc = { title, description: cleanText(body.description, 1000), category: cleanText(body.category, 80), imageUrl: safeDestination(body.imageUrl), destinationUrl: safeDestination(body.destinationUrl), published: asBool(body.published, true), sortOrder: asInt(body.sortOrder, 0, 10000, 100), updatedAt: now() };
+    // Validate price if provided
+    let pricePaise = 0;
+    if (body.priceInr !== undefined && body.priceInr !== '') {
+      const priceNum = Number(body.priceInr);
+      if (isNaN(priceNum) || priceNum < 0) throw new ApiError(400, 'Price must be a valid non-negative amount.');
+      pricePaise = Math.round(priceNum * 100); // Convert INR to paise
+      // For FREE batches, price should be 0
+      if (body.accessType === 'free' && pricePaise > 0) throw new ApiError(400, 'FREE batches must have a price of ₹0.');
+      // For PAID batches, price must be greater than 0
+      if (body.accessType === 'paid' && pricePaise <= 0) throw new ApiError(400, 'PAID batches must have a price greater than ₹0.');
+    }
+
+    // Validate durationDays if provided
+    let durationDays = 0;
+    if (body.durationDays !== undefined && body.durationDays !== '') {
+      const durationNum = Number(body.durationDays);
+      if (isNaN(durationNum) || durationNum < 1) throw new ApiError(400, 'Duration must be a valid positive number of days.');
+      durationDays = Math.round(durationNum);
+    }
+
+    const doc = {
+      title,
+      description: cleanText(body.description, 1000),
+      category: cleanText(body.category, 80),
+      imageUrl: safeDestination(body.imageUrl),
+      destinationUrl: safeDestination(body.destinationUrl),
+      published: asBool(body.published, true),
+      sortOrder: asInt(body.sortOrder, 0, 10000, 100),
+      accessType: body.accessType === 'free' ? 'free' : 'paid', // Default to paid for existing records
+      pricePaise: pricePaise, // Store price in paise (₹1 = 100 paise)
+      durationDays: durationDays, // Store duration in days
+      updatedAt: now()
+    };
     let recordId;
-    if (id) { recordId = asId(id); await db.collection('batches').updateOne({ _id: recordId }, { $set: doc }); }
-    else { doc.createdAt = now(); recordId = (await db.collection('batches').insertOne(doc)).insertedId; }
-    await audit(db, admin, id ? 'batch.updated' : 'batch.created', 'batch', recordId, { title }); return ok({ item: strip(await db.collection('batches').findOne({ _id: recordId })) });
+    if (id) {
+      recordId = asId(id);
+      // For updates, preserve existing accessType, price, and duration if not provided
+      const existingBatch = await db.collection('batches').findOne({ _id: recordId });
+      if (existingBatch) {
+        if (!body.accessType) {
+          doc.accessType = existingBatch.accessType || 'paid';
+        }
+        if (body.priceInr === undefined || body.priceInr === '') {
+          doc.pricePaise = existingBatch.pricePaise || 0;
+        }
+        if (body.durationDays === undefined || body.durationDays === '') {
+          doc.durationDays = existingBatch.durationDays || 0;
+        }
+      }
+      await db.collection('batches').updateOne({ _id: recordId }, { $set: doc });
+    }
+    else {
+      doc.createdAt = now();
+      doc.accessType = body.accessType === 'free' ? 'free' : 'paid'; // Default to paid for new batches
+      // If price not provided for new batch, set based on accessType
+      if (body.priceInr === undefined || body.priceInr === '') {
+        doc.pricePaise = body.accessType === 'free' ? 0 : 0; // Default to 0 for both, but will be validated
+      }
+      // If duration not provided for new batch, default to 0
+      if (body.durationDays === undefined || body.durationDays === '') {
+        doc.durationDays = 0;
+      }
+      recordId = (await db.collection('batches').insertOne(doc)).insertedId;
+    }
+    await audit(db, admin, id ? 'batch.updated' : 'batch.created', 'batch', recordId, { title });
+    return ok({ item: strip(await db.collection('batches').findOne({ _id: recordId })) });
   }
   if (action === 'admin/batches/delete') {
     const id = asId(body.id); const result = await db.collection('batches').deleteOne({ _id: id }); if (!result.deletedCount) throw new ApiError(404, 'Batch not found.');
