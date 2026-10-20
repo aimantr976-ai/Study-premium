@@ -93,7 +93,7 @@
       const priceEl = document.createElement('span');
       priceEl.className = 'sp-price';
       if (batch.pricePaise === 0) {
-        priceEl.textContent = 'FREE';
+        priceEl.textContent = '';
       } else {
         priceEl.textContent = `₹${(batch.pricePaise / 100).toFixed(0)}`;
       }
@@ -234,4 +234,148 @@
   bindHeader();
   loadBootstrap().then(() => { const q = new URLSearchParams(location.search); if (q.get('login') === '1') showAuth('login'); });
   loadUser();
+
+  // Anti-tampering protections as requested
+  (function() {
+    'use strict';
+
+    // Block context menu (right-click)
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    // Block keyboard shortcuts for DevTools and view source
+    document.addEventListener('keydown', function(e) {
+      // Block F12
+      if (e.key === 'F12') {
+        e.preventDefault();
+        return false;
+      }
+
+      // Block Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+      if (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key)) {
+        e.preventDefault();
+        return false;
+      }
+
+      // Block Ctrl+U (View source)
+      if (e.ctrlKey && e.key.toLowerCase() === 'u') {
+        e.preventDefault();
+        return false;
+      }
+
+      // Block Ctrl+S (Save page)
+      if (e.ctrlKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        return false;
+      }
+
+      // Block Ctrl+P (Print)
+      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        return false;
+      }
+
+      // Block Ctrl+C and Ctrl+A (Copy and Select All)
+      if (e.ctrlKey && ['c', 'a'].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+        return false;
+      }
+    }, false);
+
+    // Block text selection
+    document.addEventListener('selectstart', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    // Block copy, cut, paste
+    document.addEventListener('copy', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    document.addEventListener('cut', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    document.addEventListener('paste', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    // Block drag and drop
+    document.addEventListener('dragstart', function(e) {
+      e.preventDefault();
+      return false;
+    }, false);
+
+    // DevTools detection - if DevTools open, show warning but don't break functionality
+    // (Note: Completely blocking DevTools is impossible and harms user experience)
+    function detectDevTools() {
+      var devtools = {
+        open: false,
+        orientation: null
+      };
+
+      var threshold = 160;
+
+      var emitEvent = function(state, orientation) {
+        if (window.devtoolsCallback) {
+          window.devtoolsCallback(state, orientation);
+        }
+      };
+
+      setInterval(function() {
+        var widthThreshold = window.outerWidth - window.innerWidth > threshold;
+        var heightThreshold = window.outerHeight - window.innerHeight > threshold;
+        var orientation = widthThreshold ? 'vertical' : 'horizontal';
+
+        if (
+          (heightThreshold && !widthThreshold) ||
+          (widthThreshold && !heightThreshold)
+        ) {
+          if (!(devtools.open && devtools.orientation === orientation)) {
+            emitEvent(true, orientation);
+          }
+          devtools.open = true;
+          devtools.orientation = orientation;
+        } else {
+          if (devtools.open) {
+            emitEvent(false, null);
+          }
+          devtools.open = false;
+          devtools.orientation = null;
+        }
+      }, 500);
+
+      // Override toString trick for console detection
+      var element = new Image();
+      Object.defineProperty(element, 'id', {
+        get: function() {
+          emitEvent(true, 'console');
+        }
+      });
+      console.log(element);
+
+      return devtools;
+    }
+
+    // Apply DevTools detection
+    var devtools = detectDevTools();
+    window.devtoolsCallback = function(isOpen, orientation) {
+      if (isOpen) {
+        // Show warning in console but don't break the page
+        console.warn('DevTools detected. Please note that inspecting or tampering with this educational site may violate terms of use.');
+        // Note: Actually blanking the page or redirecting would break functionality and frustrate legitimate users
+        // For an educational site, it's better to warn than to break the experience
+      }
+    };
+
+    // Additional notice in console
+    console.info('Study Premium: This site contains educational content. ' +
+                'Please respect the terms of use and do not tamper with the code.');
+  })();
 })();
