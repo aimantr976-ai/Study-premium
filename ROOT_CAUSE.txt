@@ -1,0 +1,9 @@
+Root Cause:
+In the `site/open` and `batch/open` API endpoints, the authorization check was converting the MongoDB ObjectId from the site/batch document to a string and then checking if that string existed in the subscription's `siteIds` or `batchIds` array. Although the subscription stores these IDs as strings (copied from the plan snapshot at payment time), there was a potential mismatch due to subtle differences in string formatting (e.g., whitespace) between the validated request ID and the document-derived string.
+
+Changed Files:
+- netlify/functions/api.mjs
+  - Line 133: Changed `siteIds: { $in: [site._id.toString()] }` to `siteIds: { $in: [body.siteId] }`
+  - Line 146: Changed `batchIds: { $in: [batch._id.toString()] }` to `batchIds: { $in: [body.batchId] }`
+
+The fix ensures that the exact ID string from the request (which has been validated) is used in the authorization check, eliminating any mismatch.

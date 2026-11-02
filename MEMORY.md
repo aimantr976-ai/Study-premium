@@ -1,0 +1,1 @@
+- [Fix purchased-batch access bug](CHANGES.md) — Root cause: authorization check used document-derived ID string instead of validated request body ID; fixed by using body.siteId/body.batchId in $in clause for siteIds/batchIds.
